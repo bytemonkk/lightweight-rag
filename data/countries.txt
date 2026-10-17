@@ -1,4 +1,4 @@
-
+﻿
 France is a country in Western Europe. Its capital is Paris, which is famous for the Eiffel Tower, museums, and historic architecture.
 
 Japan is an island country in East Asia. Its capital is Tokyo, a major center for technology, transport, and culture.
@@ -8,3 +8,4 @@ The Maldives is a tropical island nation in the Indian Ocean. It is famous for c
 Indonesia is an archipelago in Southeast Asia. Bali is one of its islands and is known for beaches, temples, and tourism.
 
 Cricket is a bat-and-ball sport played between two teams. It is popular in countries such as India, Australia, and England.
+

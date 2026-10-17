@@ -1,76 +1,74 @@
 
 from pathlib import Path
 
-DATA_DIR = Path("data")
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
+DATA_DIR = Path("asia_documents")
+CHUNK_SIZE = 25
+OVERLAP = 5
 
 
-def load_documents(data_dir: Path) -> list[dict[str, str]]:
+def load_documents(directory: Path) -> list[dict[str, str]]:
     documents = []
 
-    for path in sorted(data_dir.glob("*.txt")):
-        text = path.read_text(encoding="utf-8").strip()
+    for path in sorted(directory.rglob("*.txt")):
+        text = path.read_text(encoding="utf-8-sig").strip()
 
         if text:
             documents.append({
-                "source": path.name,
+                "source": str(path),
                 "text": text,
             })
 
     return documents
 
 
-def split_text(
+def chunk_text(
     text: str,
     chunk_size: int = CHUNK_SIZE,
-    overlap: int = CHUNK_OVERLAP,
+    overlap: int = OVERLAP,
 ) -> list[str]:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
 
-    if overlap < 0 or overlap >= chunk_size:
-        raise ValueError("overlap must be >= 0 and smaller than chunk_size")
+    if not 0 <= overlap < chunk_size:
+        raise ValueError("overlap must be between 0 and chunk_size - 1")
 
-    chunks = []
+    words = text.split()
+    step = chunk_size - overlap
 
-    for start in range(0, len(text), chunk_size - overlap):
-        chunk = text[start : start + chunk_size]
-
-        if chunk:
-            chunks.append(chunk)
-
-    return chunks
+    return [
+        " ".join(words[start : start + chunk_size])
+        for start in range(0, len(words), step)
+    ]
 
 
 def main() -> None:
     documents = load_documents(DATA_DIR)
 
     if not documents:
-        raise RuntimeError(f"No non-empty .txt files found in {DATA_DIR}")
+        raise RuntimeError(f"No text documents found in {DATA_DIR}")
 
-    all_chunks = []
+    chunks = []
 
     for document in documents:
-        chunks = split_text(document["text"])
-
-        for index, chunk in enumerate(chunks):
-            all_chunks.append({
+        for index, text in enumerate(chunk_text(document["text"])):
+            chunks.append({
                 "source": document["source"],
                 "chunk_index": index,
-                "text": chunk,
+                "text": text,
             })
 
     print(f"Documents loaded: {len(documents)}")
-    print(f"Chunks created: {len(all_chunks)}")
+    print(f"Chunk size: {CHUNK_SIZE} words")
+    print(f"Overlap: {OVERLAP} words")
+    print(f"Total chunks: {len(chunks)}")
 
-    for chunk in all_chunks:
+    for chunk in chunks[:5]:
         print(
-            f"\nSource: {chunk['source']} | "
-            f"Chunk: {chunk['chunk_index']} | "
-            f"Characters: {len(chunk['text'])}"
+            f"\nSource: {chunk['source']}"
+            f"\nChunk index: {chunk['chunk_index']}"
+            f"\nWord count: {len(chunk['text'].split())}"
+            f"\n{chunk['text']}"
         )
-        print(chunk["text"])
 
 
 if __name__ == "__main__":

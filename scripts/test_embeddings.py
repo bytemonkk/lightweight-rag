@@ -1,39 +1,42 @@
 
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+
+from test_chunking import DATA_DIR, load_documents, chunk_text
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-sentences = [
-    "The capital of France is Paris.",
-    "Paris is the capital city of France.",
-    "I enjoy playing cricket on weekends.",
-]
 
 def main() -> None:
-    print(f"Loading embedding model: {MODEL_NAME}")
-    model = SentenceTransformer(MODEL_NAME)
+    # 1. Load the original dataset
+    documents = load_documents(DATA_DIR)
 
-    embeddings = model.encode(
-        sentences,
-        normalize_embeddings=True,
-        convert_to_numpy=True,
+    # 2. Split each document into chunks
+    all_chunks = []
+
+    for document in documents:
+        all_chunks.extend(chunk_text(document["text"]))
+
+    print(f"Documents loaded: {len(documents)}")
+    print(f"Total chunks: {len(all_chunks)}")
+
+    # 3. Load the embedding model
+    print(f"\nLoading embedding model: {MODEL_NAME}")
+    embedding_model = SentenceTransformer(MODEL_NAME)
+
+    # 4. Generate embeddings for all chunks
+    print("\nGenerating embeddings...")
+    chunk_embeddings = embedding_model.encode(
+        all_chunks,
+        show_progress_bar=True,
     )
 
-    similarities = cosine_similarity(embeddings)
+    # 5. Verify the results
+    print("\nEmbedding generation complete!")
+    print(f"Number of chunks: {len(all_chunks)}")
+    print(f"Embedding matrix shape: {chunk_embeddings.shape}")
+    print(f"First chunk: {all_chunks[0][:150]}...")
+    print(f"First embedding (first 5 values): {chunk_embeddings[0][:5]}")
 
-    print(f"\nNumber of sentences: {len(sentences)}")
-    print(f"Embedding matrix shape: {embeddings.shape}")
-    print("\nPairwise cosine similarities:")
-
-    for i in range(len(sentences)):
-        for j in range(i + 1, len(sentences)):
-            print(
-                f"\nSentence {i + 1} vs Sentence {j + 1}: "
-                f"{similarities[i, j]:.4f}"
-            )
-            print(f"  A: {sentences[i]}")
-            print(f"  B: {sentences[j]}")
 
 if __name__ == "__main__":
     main()
