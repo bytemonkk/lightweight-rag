@@ -1,3 +1,4 @@
+
 import requests
 from sentence_transformers import SentenceTransformer
 from sklearn.neighbors import NearestNeighbors
@@ -10,73 +11,62 @@ OLLAMA_MODEL = "qwen2.5:3b"
 TOP_K = 3
 
 
-def build_chunks() -> list[dict[str, str]]:
-    """Load documents and split them into overlapping text chunks."""
-    documents = load_documents(DATA_DIR)
-    chunks = []
+class SklearnRetriever:
+    """Retrieve relevant document chunks using cosine distance."""
 
-    for document in documents:
-        for index, text in enumerate(chunk_text(document["text"])):
-            chunks.append({
-                "source": document["source"],
-                "chunk_index": str(index),
-                "text": text,
-            })
+    def __init__(self, n_neighbors: int = TOP_K):
+        self.retriever = NearestNeighbors(
+            n_neighbors=n_neighbors,
+            metric="cosine",
+            algorithm="brute",
+        )
+        self.chunks = []
+        self.is_fitted = False
 
-    if not chunks:
-        raise RuntimeError("No document chunks were generated.")
+    def fit(self, chunks: list[dict], embeddings) -> None:
+        """Build the index once using the document embeddings."""
+        if len(chunks) != len(embeddings):
+            raise ValueError("Chunks and embeddings must have equal lengths.")
 
-    return chunks
+        if not chunks:
+            raise ValueError("Cannot build an index without document chunks.")
 
+        self.chunks = chunks
+        self.retriever.fit(embeddings)
+        self.is_fitted = True
 
-def retrieve_context(
-    question: str,
-    model: SentenceTransformer,
-    chunks: list[dict[str, str]],
-    document_embeddings,
-) -> list[dict[str, str]]:
-    """Retrieve the TOP_K chunks closest to the question embedding."""
-    query_embedding = model.encode(
-        [question],
-        normalize_embeddings=True,
-        convert_to_numpy=True,
-    )
+        print("Retriever index built successfully!")
 
-    retriever = NearestNeighbors(
-        n_neighbors=min(TOP_K, len(chunks)),
-        metric="cosine",
-        algorithm="brute",
-    )
-    retriever.fit(document_embeddings)
+    def retrieve(self, query_embedding) -> list[dict]:
+        """Return the nearest chunks, ordered by cosine distance."""
+        if not self.is_fitted:
+            raise RuntimeError("Call fit() before retrieve().")
 
-    distances, indices = retriever.kneighbors(query_embedding)
+        distances, indices = self.retriever.kneighbors(
+            [query_embedding],
+            n_neighbors=min(TOP_K, len(self.chunks)),
+        )
 
-    results = []
+        results = []
 
-    for index, distance in zip(indices[0], distances[0]):
-        chunk = chunks[int(index)].copy()
-        chunk["distance"] = f"{float(distance):.4f}"
-        results.append(chunk)
+        for index, distance in zip(indices[0], distances[0]):
+            chunk = self.chunks[int(index)].copy()
+            chunk["distance"] = float(distance)
+            results.append(chunk)
 
-    return results
+        return results
 
 
-def generate_answer(
-    question: str,
-    context: list[dict[str, str]],
-) -> str:
-    """Generate an answer using the retrieved context and Ollama."""
+def generate_rag_answer(question: str, context: list[dict]) -> str:
+    """Generate an answer from retrieved context using Ollama."""
     context_text = "\n\n".join(
         f"Source: {chunk['source']}\n{chunk['text']}"
         for chunk in context
     )
 
-    prompt = f"""You are a question-answering assistant.
-
-Answer the question using only the supplied context.
-Do not introduce facts that are not supported by the context.
+    prompt = f"""Answer the question using only the supplied context.
+Do not introduce unsupported facts.
 If the context does not contain enough information, say so.
-Keep the answer concise and mention the relevant countries.
 
 Context:
 {context_text}
@@ -100,21 +90,57 @@ Answer:"""
     return response.json()["response"].strip()
 
 
+
+def ask_rag_pipeline(
+    question: str,
+    embedding_model: SentenceTransformer,
+    retriever: SklearnRetriever,
+) -> str:
+    """Retrieve relevant chunks and generate a RAG answer."""
+    print(f"Question: {question}")
+
+    # 1. Embed the query
+    query_vector = embedding_model.encode(question)
+
+    # 2. Retrieve context using scikit-learn
+    relevant_chunks = retriever.retrieve(query_vector)
+
+    # 3. Generate the answer
+    answer = generate_rag_answer(question, relevant_chunks)
+
+    print(f"\nRAG Answer: {answer}")
+    print("\n--- Sources used ---")
+
+    for index, chunk in enumerate(relevant_chunks, start=1):
+        print(f"{index}. {chunk['text'][:100]}...")
+
+    return answer
+
+
 def main() -> None:
-    question = "Which Asian countries are known for their islands and beaches?"
+    # Load documents and create chunks
+    documents = load_documents(DATA_DIR)
+    all_chunks = []
 
-    print(f"Loading documents from: {DATA_DIR}")
-    chunks = build_chunks()
+    for document in documents:
+        for index, text in enumerate(chunk_text(document["text"])):
+            all_chunks.append({
+                "source": document["source"],
+                "chunk_index": index,
+                "text": text,
+            })
 
-    print(f"Documents loaded: {len(load_documents(DATA_DIR))}")
-    print(f"Total chunks: {len(chunks)}")
+    print(f"Documents loaded: {len(documents)}")
+    print(f"Total chunks: {len(all_chunks)}")
 
+    # Load the embedding model
     print(f"\nLoading embedding model: {EMBEDDING_MODEL}")
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    embedding_model = SentenceTransformer(EMBEDDING_MODEL)
 
+    # Embed documents and build the index once
     print("\nGenerating document embeddings...")
-    document_embeddings = model.encode(
-        [chunk["text"] for chunk in chunks],
+    document_embeddings = embedding_model.encode(
+        [chunk["text"] for chunk in all_chunks],
         normalize_embeddings=True,
         convert_to_numpy=True,
         show_progress_bar=True,
@@ -122,26 +148,26 @@ def main() -> None:
 
     print(f"Embedding matrix shape: {document_embeddings.shape}")
 
-    retrieved = retrieve_context(
-        question,
-        model,
-        chunks,
-        document_embeddings,
-    )
+    retriever = SklearnRetriever()
+    retriever.fit(all_chunks, document_embeddings)
 
-    print(f"\nQuestion: {question}")
-    print(f"\nTop {len(retrieved)} retrieved chunks:")
-
-    for rank, chunk in enumerate(retrieved, start=1):
-        print(f"\n{rank}. Cosine distance: {chunk['distance']}")
-        print(f"Source: {chunk['source']}")
-        print(chunk["text"])
+    # Run a question through the complete RAG pipeline
+    question = "Which Asian countries are best known for islands and beaches?"
 
     print(f"\nGenerating answer with Ollama ({OLLAMA_MODEL})...")
-    answer = generate_answer(question, retrieved)
+    ask_rag_pipeline(
+        "Which Asian countries are best known for islands and beaches?",
+        embedding_model,
+        retriever,
+    )
 
-    print("\nFinal answer:")
-    print(answer)
+    print("\n" + "=" * 60)
+
+    ask_rag_pipeline(
+        "What is the population of the Moon?",
+        embedding_model,
+        retriever,
+    )
 
 
 if __name__ == "__main__":
