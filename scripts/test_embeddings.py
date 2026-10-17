@@ -1,4 +1,3 @@
-
 from sentence_transformers import SentenceTransformer
 
 from test_chunking import DATA_DIR, load_documents, chunk_text

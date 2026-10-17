@@ -1,4 +1,3 @@
-
 import requests
 from sentence_transformers import SentenceTransformer
 from sklearn.neighbors import NearestNeighbors
@@ -165,6 +164,14 @@ def main() -> None:
 
     ask_rag_pipeline(
         "What is the population of the Moon?",
+        embedding_model,
+        retriever,
+    )
+    
+    print("\n" + "=" * 60)
+    
+    ask_rag_pipeline(
+        "What is the capital of Japan?",
         embedding_model,
         retriever,
     )
