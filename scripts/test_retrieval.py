@@ -2,52 +2,79 @@
 from sentence_transformers import SentenceTransformer
 from sklearn.neighbors import NearestNeighbors
 
+from test_chunking import DATA_DIR, load_documents, chunk_text
+
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+N_NEIGHBORS = 3
 
-documents = [
-    "Paris is the capital of France and a major European city.",
-    "Tokyo is the capital of Japan, known for its technology and culture.",
-    "The Maldives is famous for tropical islands, beaches, and coral reefs.",
-    "Cricket is a popular sport played with a bat and ball.",
-    "Bali is an Indonesian island known for beaches and tourism.",
-]
 
-query = "Which places are famous for islands and beaches?"
+class SklearnRetriever:
+    def __init__(self, n_neighbors=3):
+        self.retriever = NearestNeighbors(
+            n_neighbors=n_neighbors,
+            metric="cosine",
+            algorithm="brute",
+        )
+        self.chunks = []
+
+    def fit(self, chunks, embeddings):
+        """Build an index from the document chunk embeddings."""
+        if len(chunks) != len(embeddings):
+            raise ValueError("Chunks and embeddings must have equal lengths.")
+
+        self.chunks = chunks
+        self.retriever.fit(embeddings)
+        print("Vector index built successfully!")
+
+    def retrieve(self, query_embedding):
+        """Return the most relevant chunks for a query embedding."""
+        distances, indices = self.retriever.kneighbors(
+            [query_embedding]
+        )
+
+        results = [
+            (self.chunks[idx], float(distance))
+            for idx, distance in zip(indices[0], distances[0])
+        ]
+
+        return results
+
 
 def main() -> None:
-    print(f"Loading embedding model: {MODEL_NAME}")
+    # Load documents and create the article's 25-word chunks
+    documents = load_documents(DATA_DIR)
+    all_chunks = []
+
+    for document in documents:
+        all_chunks.extend(chunk_text(document["text"]))
+
+    print(f"Documents loaded: {len(documents)}")
+    print(f"Total chunks: {len(all_chunks)}")
+
+    # Generate embeddings for all chunks
     model = SentenceTransformer(MODEL_NAME)
-
-    document_embeddings = model.encode(
-        documents,
-        normalize_embeddings=True,
-        convert_to_numpy=True,
+    chunk_embeddings = model.encode(
+        all_chunks,
+        show_progress_bar=True,
     )
 
-    query_embedding = model.encode(
-        [query],
-        normalize_embeddings=True,
-        convert_to_numpy=True,
-    )
+    # Fit the retriever
+    vector_db = SklearnRetriever(n_neighbors=N_NEIGHBORS)
+    vector_db.fit(all_chunks, chunk_embeddings)
 
-    retriever = NearestNeighbors(
-        n_neighbors=3,
-        metric="cosine",
-        algorithm="brute",
-    )
-    retriever.fit(document_embeddings)
+    # Embed a question and retrieve relevant chunks
+    question = "Which Asian countries are best known for islands and beaches?"
+    query_embedding = model.encode(question)
 
-    distances, indices = retriever.kneighbors(query_embedding)
+    results = vector_db.retrieve(query_embedding)
 
-    print(f"\nQuery: {query}")
-    print("\nTop 3 retrieved documents:")
+    print(f"\nQuestion: {question}")
+    print(f"\nTop {N_NEIGHBORS} retrieved chunks:")
 
-    for rank, (index, distance) in enumerate(
-        zip(indices[0], distances[0]), start=1
-    ):
-        similarity = 1.0 - distance
-        print(f"\n{rank}. Similarity: {similarity:.4f}")
-        print(f"   {documents[index]}")
+    for rank, (chunk, distance) in enumerate(results, start=1):
+        print(f"\n{rank}. Cosine distance: {distance:.4f}")
+        print(chunk)
+
 
 if __name__ == "__main__":
     main()
