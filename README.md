@@ -386,3 +386,5 @@ This project demonstrates a lightweight, locally executable RAG pipeline using S
 It provides a practical foundation for understanding how document retrieval and LLM generation can work together to produce context-grounded responses without introducing a full-scale vector database or orchestration framework.
 
 The implementation is a baseline learning project; its retrieval quality, answer faithfulness, and performance should be evaluated further before using it for high-stakes applications.
+
+dobby, where do we need to integrate this??
